@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plinko Farcaster</title>
+    <meta property="fc:frame" content='{"version":"next","imageUrl":"https://placeholder.com/600x300","button":{"title":"Play Plinko","action":{"type":"launch_frame","name":"Plinko","url":"https://your-domain.com/"}}}' />
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a12;
+            color: #ffffff;
+            overflow-x: hidden;
+            text-align: center;
+        }
+
+        .container { padding: 15px; max-width: 500px; margin: 0 auto; }
+        .title { 
+            font-size: 2rem; 
+            background: linear-gradient(135deg, #ff6b9d, #c471ed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: 350px;
+            background: #16213e;
+            border-radius: 15px;
+            border: 1px solid #333;
+        }
+
+        .stats { display: flex; justify-content: space-around; margin: 15px 0; }
+        .stat-box { background: #1a1a2e; padding: 10px; border-radius: 10px; flex: 1; margin: 0 5px; }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #ff6b9d, #c471ed);
+            color: white;
+        }
+
+        #onchat-widget { margin-top: 20px; text-align: left; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1 class="title">PLINKO</h1>
+        <p id="user-display" style="color: #8b5cf6; margin-bottom: 10px;">Loading Farcaster...</p>
+
+        <div class="stats">
+            <div class="stat-box">
+                <p style="font-size: 0.7rem; color: #888;">SCORE</p>
+                <h2 id="score">0</h2>
+            </div>
+            <div class="stat-box">
+                <p style="font-size: 0.7rem; color: #888;">HIGH SCORE</p>
+                <h2 id="high-score">0</h2>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div style="margin-top: 15px;">
+            <button class="btn" id="drop-btn">DROP BALL</button>
+        </div>
+
+        <div id="onchat-widget"></div>
+    </div>
+
+    <script src="https://onchat.sebayaki.com/widget.js"></script>
+    
+    <script type="module">
+        import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk';
+
+        async function init() {
+            // Tell Farcaster the app is ready
+            await sdk.actions.ready();
+            
+            // Get user context from Farcaster
+            const context = await sdk.context;
+            if (context?.user) {
+                document.getElementById('user-display').innerText = `@${context.user.username}`;
+            } else {
+                document.getElementById('user-display').innerText = "Playing as Guest";
+            }
+        }
+        init();
+    </script>
+
+    <script>
+        // OnChat Initialization
+        OnChat.mount('#onchat-widget', { theme: 'reviewme-pink' });
+
+        // Game Logic & Cookie/Storage Persistence
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const dropBtn = document.getElementById('drop-btn');
+        const scoreEl = document.getElementById('score');
+        const highscoreEl = document.getElementById('high-score');
+
+        let score = 0;
+        let highScore = localStorage.getItem('plinko_best') || 0; // Persistent high score
+        highscoreEl.innerText = highScore;
+
+        // Simple Plinko Simulation
+        let balls = [];
+        const pegs = [];
+        for(let i=0; i<8; i++) {
+            for(let j=0; j<=i; j++) {
+                pegs.push({ x: 150 + (j*30) - (i*15), y: 50 + (i*35) });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Pegs
+            ctx.fillStyle = "white";
+            pegs.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            // Draw/Update Balls
+            balls.forEach((b, index) => {
+                b.y += b.vy;
+                b.x += b.vx;
+                b.vy += 0.1; // Gravity
+
+                pegs.forEach(p => {
+                    let dx = b.x - p.x;
+                    let dy = b.y - p.y;
+                    if(Math.sqrt(dx*dx + dy*dy) < 8) {
+                        b.vy *= -0.4;
+                        b.vx = (b.x - p.x) * 0.4;
+                    }
+                });
+
+                ctx.fillStyle = "#ff6b9d";
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
+                ctx.fill();
+
+                if(b.y > 350) {
+                    score += 10;
+                    scoreEl.innerText = score;
+                    if(score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('plinko_best', highScore);
+                        highscoreEl.innerText = highScore;
+                    }
+                    balls.splice(index, 1);
+                }
+            });
+            requestAnimationFrame(draw);
+        }
+
+        dropBtn.onclick = () => {
+            balls.push({ x: 150 + (Math.random()*10 - 5), y: 10, vx: 0, vy: 2 });
+        };
+
+        draw();
+    </script>
+</body>
+</html>
