@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plinko Farcaster</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&display=swap');
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: #0a0a12;
+            color: #ffffff;
+            overflow-x: hidden;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container { padding: 15px; width: 100%; max-width: 400px; }
+        .title { 
+            font-size: 2.2rem; 
+            background: linear-gradient(135deg, #ff6b9d, #c471ed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 5px;
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: 380px;
+            background: linear-gradient(180deg, #16213e 0%, #0f0f1b 100%);
+            border-radius: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .stats { display: flex; gap: 10px; margin: 15px 0; width: 100%; }
+        .stat-box { 
+            background: rgba(255, 255, 255, 0.05); 
+            padding: 10px; 
+            border-radius: 12px; 
+            flex: 1;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stat-label { font-size: 0.7rem; color: #8b8bb8; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-value { font-size: 1.4rem; font-weight: 700; color: #ff6b9d; }
+
+        .btn {
+            width: 100%;
+            padding: 18px;
+            border: none;
+            border-radius: 15px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            background: linear-gradient(135deg, #ff6b9d, #c471ed);
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 107, 157, 0.3);
+            transition: transform 0.1s;
+        }
+        .btn:active { transform: scale(0.98); }
+
+        #onchat-widget { margin-top: 25px; width: 100%; text-align: left; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1 class="title">PLINKO</h1>
+        <p id="user-display" style="color: #8b5cf6; font-weight: 500; margin-bottom: 10px;">Syncing Farcaster...</p>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-label">Score</div>
+                <div class="stat-value" id="score">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">High Score</div>
+                <div class="stat-value" id="high-score">0</div>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+
+        <div style="margin-top: 20px;">
+            <button class="btn" id="drop-btn">DROP BALL (+10)</button>
+        </div>
+
+        <div id="onchat-widget"></div>
+    </div>
+
+    <script src="https://onchat.sebayaki.com/widget.js"></script>
+    <script type="module">
+        import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk';
+
+        async function initFarcaster() {
+            try {
+                await sdk.actions.ready();
+                const context = await sdk.context;
+                if (context?.user) {
+                    document.getElementById('user-display').innerText = `@${context.user.username}`;
+                }
+            } catch (e) {
+                document.getElementById('user-display').innerText = "Guest Mode";
+            }
+        }
+        initFarcaster();
+    </script>
+
+    <script>
+        // OnChat Widget Setup
+        OnChat.mount('#onchat-widget', { theme: 'reviewme-pink' });
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const dropBtn = document.getElementById('drop-btn');
+        const scoreEl = document.getElementById('score');
+        const highscoreEl = document.getElementById('high-score');
+
+        // Layout settings
+        canvas.width = 360;
+        canvas.height = 400;
+
+        let score = 0;
+        let highScore = localStorage.getItem('plinko_best_v2') || 0;
+        highscoreEl.innerText = highScore;
+
+        let balls = [];
+        const pegs = [];
+        const rows = 8;
+        const spacingX = 35;
+        const spacingY = 35;
+
+        // Generate Pegs
+        for (let i = 0; i < rows; i++) {
+            const cols = i + 3;
+            const rowWidth = (cols - 1) * spacingX;
+            const startX = (canvas.width - rowWidth) / 2;
+            for (let j = 0; j < cols; j++) {
+                pegs.push({ x: startX + (j * spacingX), y: 60 + (i * spacingY) });
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Pegs
+            ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+            pegs.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw Bottom Scoring Bar (Guarantees no misses)
+            ctx.fillStyle = "rgba(255, 107, 157, 0.2)";
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            // Update Balls
+            balls.forEach((b, index) => {
+                b.vy += 0.15; // Gravity
+                b.x += b.vx;
+                b.y += b.vy;
+
+                // Wall bounce
+                if (b.x < 10 || b.x > canvas.width - 10) b.vx *= -0.5;
+
+                // Peg collisions
+                pegs.forEach(p => {
+                    let dx = b.x - p.x;
+                    let dy = b.y - p.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 10) {
+                        b.vy *= -0.5;
+                        b.vx = (b.x - p.x) * 0.6 + (Math.random() - 0.5);
+                        b.y = p.y + (dy/dist) * 10; // Prevent sticking
+                    }
+                });
+
+                // Render Ball
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = "#ff6b9d";
+                ctx.fillStyle = "#ff6b9d";
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 7, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                // Scoring Logic (Every ball gives 10)
+                if (b.y > canvas.height - 10) {
+                    score += 10;
+                    scoreEl.innerText = score;
+                    
+                    if (score > highScore) {
+                        highScore = score;
+                        localStorage.setItem('plinko_best_v2', highScore);
+                        highscoreEl.innerText = highScore;
+                    }
+                    balls.splice(index, 1);
+                }
+            });
+            requestAnimationFrame(draw);
+        }
+
+        dropBtn.onclick = () => {
+            balls.push({ 
+                x: canvas.width / 2 + (Math.random() * 20 - 10), 
+                y: 20, 
+                vx: (Math.random() - 0.5) * 2, 
+                vy: 1 
+            });
+        };
+
+        draw();
+    </script>
+</body>
+</html>
